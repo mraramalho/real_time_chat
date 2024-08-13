@@ -1,7 +1,7 @@
 import socket
 from config import HOST, PORT
 import threading
-
+    
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind((HOST, PORT))
 server.listen()
@@ -9,27 +9,27 @@ server.listen()
 chats = dict()
 
 def broadcast(msg, chat_name):
-    for client, info in chats.items():
-        if info['chat_name'] == chat_name:
+    chat = chats.get(chat_name)
+    if not chat:
+        return
+    for client, _ in chat.items():
+        if isinstance(client, socket.SocketType):
             client.send(msg)
 
    
-def handle_clients(client):
+def handle_clients(client, chat_name):
     while True:
-        client_info = chats.get(client)
-        try:
-            msg = client.recv(1024)
-            if client_info:
-                chat_name = client_info.get('chat_name')
+        chat = chats.get(chat_name)
+        if chat:
+            try:
+                msg = client.recv(1024)
                 broadcast(msg, chat_name=chat_name)
-        except:
-            client.close()
-            if client_info:
-                nickname = client_info.get('nickname')
-                chat_name = client_info.get('chat_name')
-                del chats[client]
+            except:
+                nickname = chat.get(client)
                 broadcast(f'{nickname} saiu da conversa!'.encode('utf-8'), 
-                          chat_name=chat_name)
+                            chat_name=chat_name)
+                del chats[chat_name][client]                
+                client.close()
                 break
   
 def receive():
@@ -43,17 +43,19 @@ def receive():
         client.send('CHAT_NAME'.encode('utf-8'))
         chat_name = client.recv(1024).decode('utf-8')
         
-        chats[client] = dict(
-            chat_name = chat_name,
-            nickname = nickname
-        )
+        chat = chats.get(chat_name)
+        if chat:
+            chat.update({client: nickname})
+        else:
+            chats[chat_name] = {client: nickname}
         
         print(f'Nome do cliente é {nickname}')
         broadcast(f'{nickname} acabou de entrar no chat'.encode('utf-8'), chat_name)
         client.send('Conectado com o servidor!'.encode('utf-8'))
         
-        thread = threading.Thread(target=handle_clients, args=(client,))
+        thread = threading.Thread(target=handle_clients, args=(client, chat_name))
         thread.start()
+        
         
 if __name__ == "__main__":
     print('Servidor escutando...')
